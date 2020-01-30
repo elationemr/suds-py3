@@ -30,6 +30,7 @@ try:
     import cPickle as pickle
 except:
     import pickle
+import traceback
 
 log = getLogger(__name__)
 
@@ -138,7 +139,7 @@ class FileCache(Cache):
         if location is None:
             location = os.path.join(tmp(), 'suds')
         self.location = location
-        self.duration = (None, 0)
+        self.duration = ('days', 0)
         self.setduration(**duration)
         self.checkversion()
 
@@ -160,7 +161,7 @@ class FileCache(Cache):
         @type duration: {unit:value}
         """
         if len(duration) == 1:
-            arg = [x[0] for x in duration.items()]
+            arg = list(duration.items())[0]
             if not arg[0] in self.units:
                 raise Exception('must be: %s' % str(self.units))
             self.duration = arg
@@ -186,26 +187,32 @@ class FileCache(Cache):
         return self
 
     def put(self, id, bfr):
+        print("FileCache.put - running")
         try:
             fn = self.__fn(id)
+            print("\tfilename: %s" % fn)
             f = self.open(fn, 'wb')
             f.write(bfr)
             f.close()
+            print("\tstatus: successfully wrote the file")
+            print(os.listdir("/tmp/suds"))
             return bfr
-        except:
+        except Exception as e:
+            traceback.print_exc()
             log.debug(id, exc_info=1)
             return bfr
 
     def putf(self, id, fp):
         try:
             fn = self.__fn(id)
-            f = self.open(fn, 'w')
+            f = self.open(fn, 'wb')
             f.write(fp.read())
             fp.close()
             f.close()
-            return open(fn)
+            return open(fn, 'rb')
         except:
             log.debug(id, exc_info=1)
+            traceback.print_exc()
             return fp
 
     def get(self, id):
@@ -215,15 +222,21 @@ class FileCache(Cache):
             f.close()
             return bfr
         except:
+            traceback.print_exc()
             pass
 
     def getf(self, id):
+        print("FileCache.getf - running")
         try:
             fn = self.__fn(id)
             self.validate(fn)
-            return self.open(fn)
-        except:
-            pass
+            print("\tFileCache.getf validate completed")
+            x = self.open(fn, 'rb')
+            print("\tFileCache.getf status: success")
+            return x
+        except Exception as e:
+            traceback.print_exc()
+            raise e
 
     def validate(self, fn):
         """
@@ -233,6 +246,7 @@ class FileCache(Cache):
         """
         if self.duration[1] < 1:
             return
+
         created = dt.fromtimestamp(os.path.getctime(fn))
         d = {self.duration[0]: self.duration[1]}
         expired = created+timedelta(**d)
@@ -253,7 +267,7 @@ class FileCache(Cache):
         try:
             os.remove(fn)
         except:
-            pass
+            traceback.print_exc()
 
     def open(self, fn, *args):
         """
@@ -265,15 +279,14 @@ class FileCache(Cache):
     def checkversion(self):
         path = os.path.join(self.location, 'version')
         try:
-
-            f = self.open(path)
-            version = f.read()
+            f = self.open(path, 'rb')
+            version = f.read().decode("utf-8")
             f.close()
             if version != suds.__version__:
                 raise Exception()
         except:
             self.clear()
-            f = self.open(path, 'w')
+            f = self.open(path, 'wt')
             f.write(suds.__version__)
             f.close()
 
@@ -320,16 +333,24 @@ class ObjectCache(FileCache):
         return 'px'
 
     def get(self, id):
+        print("ObjectCache.get - running")
         try:
             fp = FileCache.getf(self, id)
             if fp is None:
+                print("\tNo file exists, returning")
                 return None
             else:
-                return pickle.load(fp)
-        except:
+                print("\tfile exists, fetching from pickle")
+                return pickle.load(fp, encoding="utf-8")
+        except Exception as e:
+            traceback.print_exc()
             FileCache.purge(self, id)
 
     def put(self, id, object):
+        print("ObjectCache.put - running")
         bfr = pickle.dumps(object, self.protocol)
-        FileCache.put(self, id, bfr)
+        try:
+            FileCache.put(self, id, bfr)
+        except Exception as e:
+            traceback.print_exc()
         return object
